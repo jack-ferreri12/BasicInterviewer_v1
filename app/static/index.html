@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Behavioral Interview Assistant</title>
+    <script defer src="/static/app.js"></script>
+    <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+    <h1>Behavioral Interview Assistant</h1>
+
+    <!-- Button to input custom questions -->
+    <div class="btn-group">
+        <button id="startCustom">Input Custom Questions</button>
+    </div>
+
+    <!-- Custom question input section -->
+    <div id="customQuestionSection" style="display: none;">
+        <h2>Enter Your Custom Questions</h2>
+        <div id="questionContainer">
+            <div class="questionBox">
+                <input type="text" class="questionInput" placeholder="Enter your question here" />
+            </div>
+        </div>
+        <button id="addQuestionBtn" class="addQuestionBtn">+</button>
+        <button id="startInterview" style="display: none;">Start Interview</button>
+    </div>
+
+    <!-- Interview status -->
+    <div class="interview">
+        <p><strong>Current Question:</strong> <span id="currentQuestion">Waiting...</span></p>
+        <p><strong>Follow-up:</strong> <span id="followup" style="display:none;"></span></p>
+    </div>
+
+    <!-- Full transcript display -->
+    <div id="complete-container" style="display:none;">
+        <h2>Interview Transcript</h2>
+        <div id="fullTranscript"></div>
+    </div>
+</body>
+</html>
