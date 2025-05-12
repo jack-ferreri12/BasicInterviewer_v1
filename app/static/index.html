@@ -27,16 +27,39 @@
         <button id="startInterview" style="display: none;">Start Interview</button>
     </div>
 
-    <!-- Interview status -->
-    <div class="interview">
-        <p><strong>Current Question:</strong> <span id="currentQuestion">Waiting...</span></p>
-        <p><strong>Follow-up:</strong> <span id="followup" style="display:none;"></span></p>
+    <!-- Interview status section -->
+    <div id="interviewStatusSection" class="interview" style="display: none;">
+        <!-- Question progress tracker -->
+        <div class="progress-tracker">
+            <div id="questionCounter">Question 1 of 1</div>
+            <div class="progress-bar-container">
+                <div id="progressBar" class="progress-bar"></div>
+            </div>
+        </div>
+
+        <!-- Current question display -->
+        <div class="question-container">
+            <p><strong>Current Question:</strong></p>
+            <div id="currentQuestion" class="question-text">Waiting...</div>
+            <div id="followup" class="follow-up" style="display:none;"></div>
+        </div>
+        
+        <!-- Recording status -->
+        <div class="recording-status">
+            <div id="recordingStatus"></div>
+        </div>
+        
+        <!-- Live transcript container -->
+        <div class="ongoing-transcript-container">
+            <h3>Ongoing Transcript</h3>
+            <div id="ongoingTranscript" class="transcript-box"></div>
+        </div>
     </div>
 
-    <!-- Full transcript display -->
+    <!-- Full transcript display (shown at end of interview) -->
     <div id="complete-container" style="display:none;">
-        <h2>Interview Transcript</h2>
-        <div id="fullTranscript"></div>
+        <h2>Interview Complete</h2>
+        <div id="fullTranscript" class="complete-transcript"></div>
     </div>
 </body>
 </html>

@@ -1,0 +1,31 @@
+# Core web framework
+fastapi==0.95.2
+pydantic==1.10.8
+uvicorn==0.22.0
+python-multipart==0.0.6
+
+# Scientific and numerical libraries
+numpy==1.24.3
+scipy==1.10.1
+
+# Text processing
+regex==2023.6.3
+tiktoken==0.4.0
+
+# Machine learning
+torch==2.0.1
+
+# Audio processing
+ffmpeg-python==0.2.0
+pydub==0.25.1
+simpleaudio==1.0.4
+sounddevice==0.4.6
+
+# Speech-to-Text and Text-to-Speech
+numba==0.56.4
+openai==0.28.0
+openai-whisper==20230124
+edge-tts==6.1.9
+
+
+# pip install torch==2.0.1 --index-url https://download.pytorch.org/whl/cpu
