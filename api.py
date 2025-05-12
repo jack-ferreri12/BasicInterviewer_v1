@@ -1,11 +1,11 @@
-from fastapi import FastAPI, UploadFile, File, Request
+from fastapi import FastAPI, UploadFile, File, Form, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from interview_logic.TTS.edge_tts_engine import EdgeTTS
 from interview_logic.STT.whisper_stt import WhisperSTT
 import tempfile, shutil, os
 import requests
-import json  # ✅ needed for json.loads()
+import json
 
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
@@ -30,8 +30,8 @@ async def start_interview(mode: str):
     state["mode"] = mode
     state["index"] = 0
     state["questions"] = [{"question": "What is your greatest strength?"}] if mode == "preset" else []
-    state["transcript"] = []  # Reset transcript
-    state["is_interview_complete"] = False  # Reset interview status
+    state["transcript"] = []
+    state["is_interview_complete"] = False
 
     first_q = state["questions"][0]["question"] if mode == "preset" else "Please input your first custom question."
     await tts.speak(first_q)
@@ -46,11 +46,15 @@ async def add_custom_question(request: Request):
     return {"ok": True}
 
 @app.post("/answer")
-async def submit_answer(file: UploadFile = File(...)):
+async def submit_answer(
+    request: Request,
+    file: UploadFile = File(...),
+    is_followup: bool = Form(False)
+):
     print("[API] /answer endpoint hit ✅")
 
-    # Check if the interview is already complete
     if state.get("is_interview_complete", False):
+        print("[API] Interview already marked complete. Ignoring input.")
         return {
             "interview_complete": True,
             "transcript": state.get("transcript", []),
@@ -71,9 +75,8 @@ async def submit_answer(file: UploadFile = File(...)):
         print(f"[API] current_index: {current_index} (Question #{current_index + 1})")
         print("[API] state['questions']:", state["questions"])
 
-        if not state["questions"] or current_index >= len(state["questions"]):
-            print("[API] ❌ No current question available!")
-            # Mark the interview as complete if we've run out of questions
+        if not state["questions"]:
+            print("[API] ❌ No questions available!")
             state["is_interview_complete"] = True
             return {
                 "interview_complete": True,
@@ -86,62 +89,83 @@ async def submit_answer(file: UploadFile = File(...)):
 
         if "transcript" not in state:
             state["transcript"] = []
-        state["transcript"].append({"speaker": "AI", "text": current_question})
+
+        if not is_followup:
+            state["transcript"].append({"speaker": "AI", "text": current_question})
+
         state["transcript"].append({"speaker": "Human", "text": transcript_text})
 
         payload = {
             "questions": [q["question"] for q in state["questions"]],
-            "current_question": current_index + 1,  # 1-indexed for the webhook
+            "current_question": current_index + 1,
             "transcript": state["transcript"]
         }
 
-        # Improved webhook logging
         print(f"[API] Sending webhook for question #{current_index + 1}: {current_question}")
         webhook_url = "https://hudmarr.app.n8n.cloud/webhook/fb613c07-aa88-4fbd-a3c9-ba4cdf7387a9"
         response = requests.post(webhook_url, json=payload, timeout=10)
-        print(f"[API] Webhook sent for question #{current_index + 1}")
-        print("[API] Webhook response received")
-        print("[API] Raw webhook response:", response.text)
+        print(f"[API] Webhook response:", response.text)
 
         data = response.json()
-        print("[API] Parsed JSON from webhook:", data)
+        next_q = None
 
-        # ✅ Handle the double-encoded "output" field
         if "output" in data:
             parsed_output = json.loads(data["output"])
             print("[API] Extracted from output:", parsed_output)
 
-            # Get the next question index from the webhook response
             next_index = parsed_output.get("current_question", current_index + 1)
             next_q = parsed_output.get("response")
-            
-            # Check if we're moving to a new question
-            if next_index != current_index:
-                print(f"[API] Moving to question #{next_index}")
+
+            if not is_followup and next_index != current_index:
+                print(f"[API] Advancing to question #{next_index}")
                 state["index"] = next_index
-            
-            # Check if we've reached the end of available questions
-            if next_index >= len(state["questions"]) and not next_q:
-                print("[API] End of interview reached. No more questions available.")
-                state["is_interview_complete"] = True
-                return {
-                    "interview_complete": True,
-                    "transcript": state["transcript"],
-                    "followup": None,
-                    "next_question": None
-                }
+
+            # Handle follow-up for last question
+            if next_index >= len(state["questions"]):
+                if next_q:
+                    print(f"[API] Follow-up for last question: {next_q}")
+                    return {
+                        "transcript": transcript_text,
+                        "followup": next_q,
+                        "next_question": current_index,
+                        "interview_complete": False
+                    }
+                else:
+                    print("[API] End of interview reached.")
+                    state["is_interview_complete"] = True
+                    return {
+                        "interview_complete": True,
+                        "transcript": state["transcript"],
+                        "followup": None,
+                        "next_question": None
+                    }
         else:
-            # Default behavior if webhook doesn't provide guidance
-            state["index"] = current_index + 1
-            next_q = None
+            if not is_followup:
+                state["index"] = current_index + 1
+
+        # 🧠 If this was a follow-up AND there are no more core questions, mark done
+        if is_followup and current_index + 1 >= len(state["questions"]):
+            print("[API] Interview completed after final follow-up.")
+            state["is_interview_complete"] = True
+            return {
+                "transcript": transcript_text,
+                "followup": None,
+                "next_question": None,
+                "interview_complete": True
+            }
 
         if next_q:
-            state["questions"].append({"question": next_q})
-            print(f"[API] Added follow-up question: {next_q}")
+            print(f"[API] Handling follow-up question: {next_q}")
+            return {
+                "transcript": transcript_text,
+                "followup": next_q,
+                "next_question": current_index,
+                "interview_complete": False
+            }
 
         return {
             "transcript": transcript_text,
-            "followup": next_q,
+            "followup": None,
             "next_question": state["index"],
             "interview_complete": state["is_interview_complete"]
         }
@@ -155,6 +179,7 @@ async def submit_answer(file: UploadFile = File(...)):
             "next_question": None
         }
 
+
 @app.post("/speak_question")
 async def speak_question(request: Request):
     data = await request.json()
@@ -165,7 +190,6 @@ async def speak_question(request: Request):
 
 @app.get("/transcript")
 def get_transcript():
-    """Endpoint to retrieve the complete interview transcript"""
     return JSONResponse(content={
         "transcript": state.get("transcript", []),
         "is_complete": state.get("is_interview_complete", False)
@@ -173,6 +197,5 @@ def get_transcript():
 
 @app.post("/end_interview")
 def end_interview():
-    """Manually end the current interview"""
     state["is_interview_complete"] = True
     return {"status": "success", "message": "Interview marked as complete"}

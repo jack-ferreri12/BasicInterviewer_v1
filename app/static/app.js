@@ -10,6 +10,10 @@ let isInterviewComplete = false;
 let mediaRecorder = null;
 let audioStream = null;
 let waitingForFollowupAnswer = false; // New flag to track if we're waiting for a follow-up answer
+let fullMediaRecorder = null;
+let fullRecordingBlobs = [];
+let fullMediaStream = null;
+
 
 // Handle custom interview mode selection
 document.getElementById("startCustom").onclick = () => {
@@ -77,6 +81,7 @@ async function startInterviewWithWelcome() {
     console.log("Starting interview with welcome...");
 
     try {
+        await startVideoRecording();
         console.log("Attempting to speak welcome message...");
         await speakText("Hello, welcome to this interview!");
         console.log("Welcome message spoken.");
@@ -144,6 +149,8 @@ async function processNextQuestion() {
         const audioBlob = await recordAudioWithSilenceDetection();
         const formData = new FormData();
         formData.append("file", audioBlob, "answer.wav");
+        formData.append("is_followup", waitingForFollowupAnswer);  // 👈 add this
+
 
         // Show recording status
         document.getElementById("recordingStatus").textContent = "Processing your answer...";
@@ -174,7 +181,16 @@ async function processNextQuestion() {
             
             // We've handled the follow-up, now move to the next question
             waitingForFollowupAnswer = false;
-        } else {
+        }
+            if (data.interview_complete) {
+                console.log("Interview is complete after follow-up.");
+                isInterviewComplete = true;
+                endInterview();
+                return;
+            }
+        
+            
+        else {
             // Store the answer to the regular question
             interviewData.answers.push(data.transcript);
             addToTranscriptList("You", data.transcript);
@@ -269,27 +285,33 @@ function addToTranscriptList(speaker, text) {
 
 function endInterview() {
     console.log("Ending interview and showing complete transcript");
-    
-    // Stop any active recording
+    document.getElementById("liveVideo").style.display = "none";
+
+
+    // Stop audio recording (if it exists)
     if (audioStream) {
         audioStream.getTracks().forEach(track => track.stop());
         audioStream = null;
     }
-    
+
+    // ✅ Always stop + show video playback
+    stopAndShowRecording();
+
     // Tell the server to officially end the interview
     fetch("/end_interview", {
         method: "POST"
     });
-    
+
     // Hide interview section
     document.getElementById("interviewStatusSection").style.display = "none";
-    
+
     // Show complete container
     document.getElementById("complete-container").style.display = "block";
-    
+
     // Display full transcript
     displayFullTranscript();
 }
+
 
 function displayFullTranscript() {
     const transcriptContainer = document.getElementById("fullTranscript");
@@ -477,4 +499,49 @@ function recordAudioWithSilenceDetection() {
             }
         }, 60000);
     });
+}
+
+async function startVideoRecording() {
+    try {
+        fullMediaStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+
+        // Show the webcam on screen
+        const videoElement = document.getElementById("liveVideo");
+        videoElement.srcObject = fullMediaStream;
+        videoElement.play();
+
+        // Record audio+video
+        fullRecordingBlobs = [];
+        fullMediaRecorder = new MediaRecorder(fullMediaStream);
+
+        fullMediaRecorder.ondataavailable = (e) => {
+            console.log("Got video data:", e.data);  // ✅ Debug log
+            if (e.data.size > 0) fullRecordingBlobs.push(e.data);
+        };
+
+        fullMediaRecorder.start(1000);  // ✅ Flush chunks every second
+    } catch (err) {
+        console.error("Failed to start video recording:", err);
+    }
+}
+function stopAndShowRecording() {
+    console.log("Blobs:", fullRecordingBlobs);
+    if (fullMediaRecorder && fullMediaRecorder.state !== "inactive") {
+        fullMediaRecorder.stop();
+    }
+
+    if (fullMediaStream) {
+        fullMediaStream.getTracks().forEach(track => track.stop());
+    }
+
+    const playbackBlob = new Blob(fullRecordingBlobs, { type: 'video/webm' });
+    const playbackURL = URL.createObjectURL(playbackBlob);
+
+    const videoPlayer = document.createElement("video");
+    videoPlayer.controls = true;
+    videoPlayer.src = playbackURL;
+    videoPlayer.style.width = "100%";
+    videoPlayer.style.marginTop = "20px";
+
+    document.getElementById("complete-container").appendChild(videoPlayer);
 }
