@@ -13,6 +13,8 @@ let waitingForFollowupAnswer = false; // New flag to track if we're waiting for 
 let fullMediaRecorder = null;
 let fullRecordingBlobs = [];
 let fullMediaStream = null;
+let justTransitioned = false;
+
 
 
 // Handle custom interview mode selection
@@ -104,8 +106,6 @@ async function startInterviewWithWelcome() {
 
 
 
-
-
 // Simplified showClosingRemarks function
 function showClosingRemarks(text) {
     // Clear current question display
@@ -189,48 +189,49 @@ function speakText(text, source = "unknown") {
 let welcomeMessagePlayed = false;
 
 // 4. Completely rewritten processNextQuestion
-function processNextQuestion() {
+
+async function processNextQuestion() {
     console.log("Running processNextQuestion");
-    
-    // Check if interview is already complete
+
     if (isInterviewComplete) {
         endInterview();
         return;
     }
 
-    // Get current question
     let currentQuestionText;
     let isFollowUp = waitingForFollowupAnswer;
-    
+
     if (isFollowUp) {
-        // Handle follow-up question
         currentQuestionText = interviewData.followups[interviewData.followups.length - 1];
         document.getElementById("followup").style.display = "block";
         document.getElementById("followup").textContent = currentQuestionText;
         document.getElementById("currentQuestion").textContent = "Follow-up Question:";
     } else {
-        // Handle regular question
         currentQuestionText = interviewData.questions[currentQuestionIndex];
         if (typeof currentQuestionText === 'object') {
             currentQuestionText = currentQuestionText.question;
         }
         document.getElementById("currentQuestion").textContent = currentQuestionText;
         document.getElementById("followup").style.display = "none";
-        
-        document.getElementById("questionCounter").textContent = 
+
+        document.getElementById("questionCounter").textContent =
             `Question ${currentQuestionIndex + 1} of ${interviewData.questions.length}`;
         updateProgressTracker(currentQuestionIndex + 1, interviewData.questions.length);
     }
-    
-    // IMPORTANT: Speak the question ONCE
-    speakText(currentQuestionText, "main-question");
-    
-    // Start recording
+
+    // ✅ Speak the question if it's a follow-up or not just transitioned
+    if (isFollowUp || !justTransitioned) {
+        await speakText(currentQuestionText, isFollowUp ? "follow-up" : "question");
+    } else {
+        console.log("[TTS] Skipping speaking question due to justTransitioned flag");
+        justTransitioned = false;  // ✅ Reset after skipping
+    }
+
+    // ✅ THEN start recording
     recordAudioWithSilenceDetection().then(audioBlob => {
         const formData = new FormData();
         formData.append("file", audioBlob, "answer.wav");
         formData.append("is_followup", isFollowUp);
-        
         return fetch("/answer", {
             method: "POST",
             body: formData
@@ -238,7 +239,6 @@ function processNextQuestion() {
     })
     .then(response => response.json())
     .then(data => {
-        // Store the answer
         if (isFollowUp) {
             interviewData.followupAnswers.push(data.transcript);
             addToTranscriptList("You (Follow-up response)", data.transcript);
@@ -247,14 +247,12 @@ function processNextQuestion() {
             interviewData.answers.push(data.transcript);
             addToTranscriptList("You", data.transcript);
         }
-        
-        // Handle interview completion
+
         if (data.interview_complete) {
             if (data.followup) {
                 addToTranscriptList("Interviewer (Closing)", data.followup);
                 showClosingRemarks(data.followup);
                 speakText(data.followup, "closing");
-                
                 setTimeout(() => {
                     isInterviewComplete = true;
                     endInterview();
@@ -265,44 +263,35 @@ function processNextQuestion() {
             }
             return;
         }
-        
-        // CRITICAL FIX: Handle the response based on is_follow_up flag
+
         if (data.is_follow_up) {
-            // This is a follow-up question
             console.log("Received follow-up question:", data.followup);
             interviewData.followups.push(data.followup);
             addToTranscriptList("Interviewer (Follow-up)", data.followup);
             waitingForFollowupAnswer = true;
-            
-            // Speak follow-up and start next cycle
-            speakText(data.followup, "follow-up");
             setTimeout(() => processNextQuestion(), 100);
             return;
         } else {
-            // This is a transition to the next question
             if (data.followup) {
                 console.log("Received transition to next question:", data.followup);
-                
-                // Update transcript with transition
                 addToTranscriptList("Interviewer", data.followup);
-                
-                // IMPORTANT: Update question index BEFORE speaking the transition
+
                 if (data.next_question !== null && data.next_question !== undefined) {
                     currentQuestionIndex = data.next_question;
                 }
-                
-                // Speak ONLY the transition, not the next question
-                speakText(data.followup, "transition");
-                
-                // Start next cycle after a short delay
-                setTimeout(() => processNextQuestion(), 100);
+
+                justTransitioned = true; // ✅ Transition line was just spoken
+                speakText(data.followup, "transition").then(() => {
+                    setTimeout(() => processNextQuestion(), 100);
+                });
+
                 return;
             }
         }
-        
-        // Simple next question (no transition)
+
         if (data.next_question !== null && data.next_question !== undefined) {
             currentQuestionIndex = data.next_question;
+            justTransitioned = false;  // Just in case
             setTimeout(() => processNextQuestion(), 100);
         } else {
             isInterviewComplete = true;
@@ -313,6 +302,7 @@ function processNextQuestion() {
         console.error("Error in processNextQuestion:", error);
     });
 }
+
 
 // 5. Customize the startInterviewWithWelcome function
 async function startInterviewWithWelcome() {
@@ -376,8 +366,6 @@ function addToTranscriptList(speaker, text) {
 
 function endInterview() {
     console.log("Ending interview and showing complete transcript");
-    document.getElementById("liveVideo").style.display = "none";
-
 
     // Stop audio recording (if it exists)
     if (audioStream) {
@@ -636,6 +624,7 @@ async function startVideoRecording() {
         // Show the webcam on screen
         const videoElement = document.getElementById("liveVideo");
         videoElement.srcObject = fullMediaStream;
+        videoElement.style.display = "block";  // ✅ Make sure it's visible
         videoElement.play();
 
         // Record audio+video
@@ -643,15 +632,16 @@ async function startVideoRecording() {
         fullMediaRecorder = new MediaRecorder(fullMediaStream);
 
         fullMediaRecorder.ondataavailable = (e) => {
-            console.log("Got video data:", e.data);  // ✅ Debug log
+            console.log("Got video data:", e.data);
             if (e.data.size > 0) fullRecordingBlobs.push(e.data);
         };
 
-        fullMediaRecorder.start(1000);  // ✅ Flush chunks every second
+        fullMediaRecorder.start(1000);
     } catch (err) {
         console.error("Failed to start video recording:", err);
     }
 }
+
 function stopAndShowRecording() {
     console.log("Blobs:", fullRecordingBlobs);
     if (fullMediaRecorder && fullMediaRecorder.state !== "inactive") {
@@ -671,5 +661,5 @@ function stopAndShowRecording() {
     videoPlayer.style.width = "100%";
     videoPlayer.style.marginTop = "20px";
 
-    document.getElementById("complete-container").appendChild(videoPlayer);
+    document.getElementById("videoPlaybackContainer").appendChild(videoPlayer);
 }
