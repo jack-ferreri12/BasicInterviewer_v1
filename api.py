@@ -84,20 +84,34 @@ async def submit_answer(
                 "followup": None,
                 "next_question": None
             }
+        
+        if current_index >= len(state["questions"]):
+            print(f"[API] Index {current_index} is beyond available questions. Ending interview.")
+            state["is_interview_complete"] = True
+            return {
+                "interview_complete": True,
+                "transcript": state.get("transcript", []),
+                "followup": None,
+                "next_question": None
+            }
 
         current_question = state["questions"][current_index]["question"]
 
         if "transcript" not in state:
             state["transcript"] = []
 
-        if not is_followup:
-            state["transcript"].append({"speaker": "AI", "text": current_question})
-
-        state["transcript"].append({"speaker": "Human", "text": transcript_text})
+        # Add human response to transcript
+        if is_followup:
+            # If this is a follow-up answer, just add the human response
+            state["transcript"].append({"speaker": "Human", "text": transcript_text, "is_followup_answer": True})
+        else:
+            # For regular questions, add both the question and answer to transcript
+            state["transcript"].append({"speaker": "AI", "text": current_question, "question_number": current_index + 1})
+            state["transcript"].append({"speaker": "Human", "text": transcript_text})
 
         payload = {
             "questions": [q["question"] for q in state["questions"]],
-            "current_question": current_index + 1,
+            "current_question": current_index + 1,  # 1-based index for the LLM
             "transcript": state["transcript"]
         }
 
@@ -107,68 +121,82 @@ async def submit_answer(
         print(f"[API] Webhook response:", response.text)
 
         data = response.json()
-        next_q = None
-
-        if "output" in data:
-            parsed_output = json.loads(data["output"])
-            print("[API] Extracted from output:", parsed_output)
-
-            next_index = parsed_output.get("current_question", current_index + 1)
-            next_q = parsed_output.get("response")
-
-            if not is_followup and next_index != current_index:
-                print(f"[API] Advancing to question #{next_index}")
-                state["index"] = next_index
-
-            # Handle follow-up for last question
-            if next_index >= len(state["questions"]):
-                if next_q:
-                    print(f"[API] Follow-up for last question: {next_q}")
-                    return {
-                        "transcript": transcript_text,
-                        "followup": next_q,
-                        "next_question": current_index,
-                        "interview_complete": False
-                    }
-                else:
-                    print("[API] End of interview reached.")
-                    state["is_interview_complete"] = True
-                    return {
-                        "interview_complete": True,
-                        "transcript": state["transcript"],
-                        "followup": None,
-                        "next_question": None
-                    }
-        else:
-            if not is_followup:
-                state["index"] = current_index + 1
-
-        # 🧠 If this was a follow-up AND there are no more core questions, mark done
-        if is_followup and current_index + 1 >= len(state["questions"]):
-            print("[API] Interview completed after final follow-up.")
-            state["is_interview_complete"] = True
+        
+        if "output" not in data:
+            print("[API] No output in webhook response")
             return {
+                "error": "No output in webhook response",
                 "transcript": transcript_text,
                 "followup": None,
-                "next_question": None,
-                "interview_complete": True
+                "next_question": current_index
             }
 
-        if next_q:
-            print(f"[API] Handling follow-up question: {next_q}")
+        parsed_output = json.loads(data["output"])
+        print("[API] Extracted from output:", parsed_output)
+
+        # Get the values from the parsed output
+        is_follow_up = parsed_output.get("is_follow_up", False)
+        next_response = parsed_output.get("response")
+
+        if next_response is None:
+            print("[API] No response in webhook output")
+            return {
+                "error": "No response in webhook output",
+                "transcript": transcript_text,
+                "followup": None,
+                "next_question": current_index
+            }
+
+        # Process based on whether this is a follow-up or next question
+        if is_follow_up:
+            print(f"[API] Handling follow-up question: {next_response}")
+            # Add follow-up to transcript
+            state["transcript"].append({"speaker": "AI", "text": next_response, "is_followup": True})
+            
+            # Return follow-up information, staying on same question
             return {
                 "transcript": transcript_text,
-                "followup": next_q,
+                "followup": next_response,
                 "next_question": current_index,
-                "interview_complete": False
+                "is_follow_up": True,
+                "interview_complete": False,
+                "question_number": current_index + 1  # 1-based for display
             }
-
-        return {
-            "transcript": transcript_text,
-            "followup": None,
-            "next_question": state["index"],
-            "interview_complete": state["is_interview_complete"]
-        }
+        else:
+            # This is NOT a follow-up, move to next question
+            print(f"[API] Moving to next question after response: {next_response}")
+            
+            # Increment the question index 
+            next_index = current_index + 1
+            state["index"] = next_index
+            
+            # Add transition response to transcript
+            state["transcript"].append({"speaker": "AI", "text": next_response, "transition_to": next_index + 1})
+            
+            # Check if we've reached the end of questions
+            if next_index >= len(state["questions"]):
+                print("[API] No more questions. Ending interview.")
+                state["is_interview_complete"] = True
+                return {
+                    "transcript": transcript_text,
+                    "followup": next_response,
+                    "next_question": None,
+                    "is_follow_up": False,
+                    "interview_complete": True,
+                    "question_number": current_index + 1  # The question we just finished
+                }
+            
+            # Return next question information
+            next_question_text = state["questions"][next_index]["question"]
+            return {
+                "transcript": transcript_text,
+                "followup": next_response,
+                "next_question": next_index,
+                "next_question_text": next_question_text,
+                "is_follow_up": False,
+                "interview_complete": False,
+                "question_number": next_index + 1  # 1-based for display
+            }
 
     except Exception as e:
         print("[API ERROR]", str(e))
@@ -190,8 +218,27 @@ async def speak_question(request: Request):
 
 @app.get("/transcript")
 def get_transcript():
+    """Return the full transcript with enhanced metadata"""
+    # Enhance the transcript with additional metadata
+    enhanced_transcript = []
+    
+    for i, entry in enumerate(state.get("transcript", [])):
+        # Create a copy of the entry with all its fields
+        enhanced_entry = entry.copy()
+        
+        # If this is a question, add the question number
+        if entry.get("speaker") == "AI" and not entry.get("is_followup") and not entry.get("transition_to"):
+            question_idx = 0
+            for j in range(i):
+                if state["transcript"][j].get("speaker") == "AI" and not state["transcript"][j].get("is_followup") and not state["transcript"][j].get("transition_to"):
+                    question_idx += 1
+            enhanced_entry["question_number"] = question_idx + 1
+        
+        enhanced_transcript.append(enhanced_entry)
+    
     return JSONResponse(content={
-        "transcript": state.get("transcript", []),
+        "transcript": enhanced_transcript,
+        "questions": state.get("questions", []),
         "is_complete": state.get("is_interview_complete", False)
     })
 

@@ -101,157 +101,248 @@ async function startInterviewWithWelcome() {
     }
 }
 
-async function speakText(text) {
-    const response = await fetch("/speak_question", {
+
+
+
+
+
+// Simplified showClosingRemarks function
+function showClosingRemarks(text) {
+    // Clear current question display
+    document.getElementById("currentQuestion").textContent = "";
+    document.getElementById("followup").style.display = "none";
+    
+    // Add closing remarks container
+    const questionContainer = document.querySelector(".question-container");
+    questionContainer.classList.add("closing");
+    
+    // Create closing remarks element
+    const closingElement = document.createElement("div");
+    closingElement.className = "closing-remarks";
+    closingElement.innerHTML = `
+        <div class="closing-indicator">Closing Remarks</div>
+        <div class="closing-text">${text}</div>
+        <div class="closing-countdown">Finishing up interview...</div>
+    `;
+    
+    // Replace current content with closing remarks
+    questionContainer.appendChild(closingElement);
+    
+    // Update progress bar to 100%
+    const progressBar = document.getElementById("progressBar");
+    progressBar.style.width = "100%";
+    
+    // Update question counter text
+    document.getElementById("questionCounter").textContent = "Interview Complete";
+}
+
+// Main function for handling the interview flow - simplified to use is_follow_up flag
+// Direct and focused solution to fix both issues:
+// 1. No more repeated questions
+// 2. No gap between speaking and recording
+
+// Back to basics with extensive debugging
+// Core speakText function - simple and direct
+// Fix for duplicate audio issue
+
+// First, add this small helper function to the top of app.js to track if audio is already playing
+// This will prevent duplicate audio requests
+// Simple and reliable speakText function - no duplicate protection to start with
+// Extremely basic speakText function - just makes the request and returns
+// Debugging version of speakText with detailed logging
+// Fix for double audio and transition+question issues
+
+// 1. Track the last played audio to prevent duplicates
+let lastPlayedAudio = "";
+
+// 2. Simple speakText function with duplicate prevention
+function speakText(text, source = "unknown") {
+    // Skip if this is the same text we just played (within last 5 seconds)
+    if (text === lastPlayedAudio) {
+        console.log(`SKIPPING DUPLICATE AUDIO: "${text}"`);
+        return Promise.resolve();
+    }
+    
+    // Otherwise, play it and remember it
+    console.log(`PLAYING AUDIO from ${source}: "${text}"`);
+    lastPlayedAudio = text;
+    
+    // Clear the last played audio after 5 seconds
+    setTimeout(() => {
+        if (lastPlayedAudio === text) {
+            lastPlayedAudio = "";
+        }
+    }, 5000);
+    
+    // Make the request
+    return fetch("/speak_question", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ question: text }),
+    })
+    .catch(error => {
+        console.error("Audio request error:", error);
     });
-
-    const data = await response.json();
-    if (data.status === "success") {
-        console.log("Text spoken successfully");
-    } else {
-        console.error("Failed to speak text:", data);
-    }
 }
 
-async function processNextQuestion() {
-    // If interview is already complete, show the transcript
+// 3. Handle welcome message only once
+let welcomeMessagePlayed = false;
+
+// 4. Completely rewritten processNextQuestion
+function processNextQuestion() {
+    console.log("Running processNextQuestion");
+    
+    // Check if interview is already complete
     if (isInterviewComplete) {
         endInterview();
         return;
     }
 
-    try {
-        // Set up what text to display based on whether we're handling a follow-up
-        let currentQuestionText;
-        if (waitingForFollowupAnswer) {
-            // We're waiting for an answer to a follow-up
-            currentQuestionText = interviewData.followups[interviewData.followups.length - 1];
-            document.getElementById("followup").style.display = "block";
-            document.getElementById("followup").textContent = currentQuestionText;
-            document.getElementById("currentQuestion").textContent = "Follow-up Question:";
-        } else {
-            // Regular question
-            currentQuestionText = interviewData.questions[currentQuestionIndex];
-            document.getElementById("currentQuestion").textContent = currentQuestionText;
-            document.getElementById("followup").style.display = "none";
-            
-            // Update question counter and progress bar
-            document.getElementById("questionCounter").textContent = 
-                `Question ${currentQuestionIndex + 1} of ${interviewData.questions.length}`;
-            updateProgressTracker(currentQuestionIndex + 1, interviewData.questions.length);
+    // Get current question
+    let currentQuestionText;
+    let isFollowUp = waitingForFollowupAnswer;
+    
+    if (isFollowUp) {
+        // Handle follow-up question
+        currentQuestionText = interviewData.followups[interviewData.followups.length - 1];
+        document.getElementById("followup").style.display = "block";
+        document.getElementById("followup").textContent = currentQuestionText;
+        document.getElementById("currentQuestion").textContent = "Follow-up Question:";
+    } else {
+        // Handle regular question
+        currentQuestionText = interviewData.questions[currentQuestionIndex];
+        if (typeof currentQuestionText === 'object') {
+            currentQuestionText = currentQuestionText.question;
         }
+        document.getElementById("currentQuestion").textContent = currentQuestionText;
+        document.getElementById("followup").style.display = "none";
         
-        // Record the answer (for either regular question or follow-up)
-        console.log(`Recording answer for: ${currentQuestionText}`);
-        const audioBlob = await recordAudioWithSilenceDetection();
+        document.getElementById("questionCounter").textContent = 
+            `Question ${currentQuestionIndex + 1} of ${interviewData.questions.length}`;
+        updateProgressTracker(currentQuestionIndex + 1, interviewData.questions.length);
+    }
+    
+    // IMPORTANT: Speak the question ONCE
+    speakText(currentQuestionText, "main-question");
+    
+    // Start recording
+    recordAudioWithSilenceDetection().then(audioBlob => {
         const formData = new FormData();
         formData.append("file", audioBlob, "answer.wav");
-        formData.append("is_followup", waitingForFollowupAnswer);  // 👈 add this
-
-
-        // Show recording status
-        document.getElementById("recordingStatus").textContent = "Processing your answer...";
-
-        const res = await fetch("/answer", {
+        formData.append("is_followup", isFollowUp);
+        
+        return fetch("/answer", {
             method: "POST",
             body: formData
         });
-        const data = await res.json();
-
-        // Reset recording status
-        document.getElementById("recordingStatus").textContent = "";
-
-        // Check if the interview is complete
-        if (data.interview_complete) {
-            console.log("Interview complete flag received from server");
-            isInterviewComplete = true;
-            endInterview();
-            return;
-        }
-
-        // Handle the transcribed answer
-        if (waitingForFollowupAnswer) {
-            // Store the answer to the follow-up
+    })
+    .then(response => response.json())
+    .then(data => {
+        // Store the answer
+        if (isFollowUp) {
             interviewData.followupAnswers.push(data.transcript);
             addToTranscriptList("You (Follow-up response)", data.transcript);
-            console.log("Stored follow-up answer:", data.transcript);
-            
-            // We've handled the follow-up, now move to the next question
             waitingForFollowupAnswer = false;
-        }
-            if (data.interview_complete) {
-                console.log("Interview is complete after follow-up.");
-                isInterviewComplete = true;
-                endInterview();
-                return;
-            }
-        
-            
-        else {
-            // Store the answer to the regular question
+        } else {
             interviewData.answers.push(data.transcript);
             addToTranscriptList("You", data.transcript);
         }
         
-        // Handle follow-up if there is one
-        if (data.followup && !waitingForFollowupAnswer) {
-            // Store the follow-up
-            interviewData.followups.push(data.followup);
-            
-            // Show and speak the follow-up
-            document.getElementById("followup").style.display = "block";
-            document.getElementById("followup").textContent = data.followup;
-            addToTranscriptList("Interviewer (Follow-up)", data.followup);
-            await speakText(data.followup);
-            
-            // Set flag that we're now waiting for a follow-up answer
-            waitingForFollowupAnswer = true;
-            
-            // Process the follow-up question (to get the answer)
-            processNextQuestion();
+        // Handle interview completion
+        if (data.interview_complete) {
+            if (data.followup) {
+                addToTranscriptList("Interviewer (Closing)", data.followup);
+                showClosingRemarks(data.followup);
+                speakText(data.followup, "closing");
+                
+                setTimeout(() => {
+                    isInterviewComplete = true;
+                    endInterview();
+                }, 5000);
+            } else {
+                isInterviewComplete = true;
+                endInterview();
+            }
             return;
         }
-
-        // If we're here, we've handled any follow-ups and are ready to move to the next question
-        if (data.next_question !== null && data.next_question !== undefined) {
-            const previousIndex = currentQuestionIndex;
-            currentQuestionIndex = data.next_question;
+        
+        // CRITICAL FIX: Handle the response based on is_follow_up flag
+        if (data.is_follow_up) {
+            // This is a follow-up question
+            console.log("Received follow-up question:", data.followup);
+            interviewData.followups.push(data.followup);
+            addToTranscriptList("Interviewer (Follow-up)", data.followup);
+            waitingForFollowupAnswer = true;
             
-            console.log(`Moving from question #${previousIndex + 1} to #${currentQuestionIndex + 1}`);
-            
-            // Check if we're moving beyond available questions
-            if (currentQuestionIndex >= interviewData.questions.length) {
-                console.log("No more questions available. Ending interview.");
-                isInterviewComplete = true;
-                endInterview();
+            // Speak follow-up and start next cycle
+            speakText(data.followup, "follow-up");
+            setTimeout(() => processNextQuestion(), 100);
+            return;
+        } else {
+            // This is a transition to the next question
+            if (data.followup) {
+                console.log("Received transition to next question:", data.followup);
+                
+                // Update transcript with transition
+                addToTranscriptList("Interviewer", data.followup);
+                
+                // IMPORTANT: Update question index BEFORE speaking the transition
+                if (data.next_question !== null && data.next_question !== undefined) {
+                    currentQuestionIndex = data.next_question;
+                }
+                
+                // Speak ONLY the transition, not the next question
+                speakText(data.followup, "transition");
+                
+                // Start next cycle after a short delay
+                setTimeout(() => processNextQuestion(), 100);
                 return;
             }
-            
-            // Process the next regular question
-            const nextQuestion = interviewData.questions[currentQuestionIndex];
-            if (nextQuestion) {
-                document.getElementById("currentQuestion").textContent = nextQuestion;
-                addToTranscriptList("Interviewer", nextQuestion);
-                await speakText(nextQuestion);
-                processNextQuestion();
-            } else {
-                console.log("No next question found. Ending interview.");
-                isInterviewComplete = true;
-                endInterview();
-            }
+        }
+        
+        // Simple next question (no transition)
+        if (data.next_question !== null && data.next_question !== undefined) {
+            currentQuestionIndex = data.next_question;
+            setTimeout(() => processNextQuestion(), 100);
         } else {
-            console.log("No next_question index received. Ending interview.");
             isInterviewComplete = true;
             endInterview();
         }
+    })
+    .catch(error => {
+        console.error("Error in processNextQuestion:", error);
+    });
+}
+
+// 5. Customize the startInterviewWithWelcome function
+async function startInterviewWithWelcome() {
+    console.log("Starting interview with welcome...");
+
+    try {
+        // Speak welcome message only if not already played
+        if (!welcomeMessagePlayed) {
+            console.log("Speaking welcome message");
+            await speakText("Hello, welcome to this interview!", "welcome");
+            welcomeMessagePlayed = true;
+        }
+
+        // Don't speak the first question here - let processNextQuestion handle it
+        processNextQuestion();
     } catch (error) {
-        console.error("Error processing question:", error);
-        document.getElementById("recordingStatus").textContent = "Error: " + error.message;
+        console.error("Error during interview start:", error);
     }
 }
+
+// Add hooks to recordAudioWithSilenceDetection for debugging
+const originalRecordAudio = recordAudioWithSilenceDetection;
+recordAudioWithSilenceDetection = function() {
+    console.log("DEBUG RECORD: Starting audio recording");
+    return originalRecordAudio.apply(this, arguments).then(result => {
+        console.log("DEBUG RECORD: Audio recording complete");
+        return result;
+    });
+};
+
 
 function updateProgressTracker(current, total) {
     const progressBar = document.getElementById("progressBar");
@@ -313,6 +404,8 @@ function endInterview() {
 }
 
 
+// Update the displayFullTranscript function
+
 function displayFullTranscript() {
     const transcriptContainer = document.getElementById("fullTranscript");
     transcriptContainer.innerHTML = ""; // Clear existing content
@@ -328,22 +421,57 @@ function displayFullTranscript() {
         .then(data => {
             // Check if there's an official transcript
             if (data.transcript && data.transcript.length > 0) {
-                data.transcript.forEach(entry => {
-                    const entryElement = document.createElement("p");
-                    entryElement.className = entry.speaker === "AI" ? "interviewer" : "interviewee";
+                let currentQuestionNum = 0;
+                let inFollowUp = false;
+                
+                data.transcript.forEach((entry) => {
+                    const isAI = entry.speaker === "AI";
+                    const isFollowUp = entry.is_followup === true;
+                    const isFollowUpAnswer = entry.is_followup_answer === true;
+                    const isTransition = entry.transition_to !== undefined;
                     
-                    const speakerLabel = entry.speaker === "AI" ? "Interviewer: " : "You: ";
-                    entryElement.textContent = speakerLabel + entry.text;
+                    // Create the entry element
+                    const entryElement = document.createElement("p");
+                    
+                    // Determine the CSS class and prefix based on the type of entry
+                    if (isAI) {
+                        if (isFollowUp) {
+                            entryElement.className = "interviewer followup";
+                            entryElement.textContent = `Interviewer (Follow-up): ${entry.text}`;
+                            inFollowUp = true;
+                        } else if (isTransition) {
+                            entryElement.className = "interviewer transition";
+                            entryElement.textContent = `Interviewer: ${entry.text}`;
+                            inFollowUp = false;
+                        } else {
+                            // Regular question
+                            currentQuestionNum = entry.question_number || currentQuestionNum + 1;
+                            entryElement.className = "interviewer question";
+                            entryElement.textContent = `Interviewer (Question ${currentQuestionNum}): ${entry.text}`;
+                            inFollowUp = false;
+                        }
+                    } else {
+                        // Human response
+                        if (isFollowUpAnswer || inFollowUp) {
+                            entryElement.className = "interviewee followup-answer";
+                            entryElement.textContent = `You (Follow-up response): ${entry.text}`;
+                        } else {
+                            entryElement.className = "interviewee";
+                            entryElement.textContent = `You: ${entry.text}`;
+                        }
+                    }
                     
                     transcriptContainer.appendChild(entryElement);
                 });
             } else {
                 // Fallback to local data if server doesn't have transcript
+                console.log("No server transcript, using local data");
+                
                 // Process main questions and answers
                 interviewData.questions.forEach((question, index) => {
                     const questionElement = document.createElement("p");
-                    questionElement.className = "interviewer";
-                    questionElement.textContent = `Interviewer: ${question}`;
+                    questionElement.className = "interviewer question";
+                    questionElement.textContent = `Interviewer (Question ${index + 1}): ${question}`;
                     transcriptContainer.appendChild(questionElement);
 
                     if (interviewData.answers[index]) {
@@ -364,7 +492,7 @@ function displayFullTranscript() {
                         if (interviewData.followupAnswers[index]) {
                             const followupAnswerElement = document.createElement("p");
                             followupAnswerElement.className = "interviewee followup-answer";
-                            followupAnswerElement.textContent = `You: ${interviewData.followupAnswers[index]}`;
+                            followupAnswerElement.textContent = `You (Follow-up response): ${interviewData.followupAnswers[index]}`;
                             transcriptContainer.appendChild(followupAnswerElement);
                         }
                     }

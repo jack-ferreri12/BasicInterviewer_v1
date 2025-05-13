@@ -27,5 +27,8 @@ openai==0.28.0
 openai-whisper==20230124
 edge-tts==6.1.9
 
-
+# Remove-Item -Recurse -Force venv
+# py -3.9 -m venv venv
 # pip install torch==2.0.1 --index-url https://download.pytorch.org/whl/cpu
+# pip install -r requirements39.txt
+# uvicorn api:app --reload
