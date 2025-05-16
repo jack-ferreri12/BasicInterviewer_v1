@@ -15,8 +15,6 @@ let fullRecordingBlobs = [];
 let fullMediaStream = null;
 let justTransitioned = false;
 
-
-
 // Handle custom interview mode selection
 document.getElementById("startCustom").onclick = () => {
     console.log("Start Custom clicked");
@@ -83,7 +81,9 @@ async function startInterviewWithWelcome() {
     console.log("Starting interview with welcome...");
 
     try {
+        // ✅ Start webcam + recording here
         await startVideoRecording();
+
         console.log("Attempting to speak welcome message...");
         await speakText("Hello, welcome to this interview!");
         console.log("Welcome message spoken.");
@@ -304,24 +304,6 @@ async function processNextQuestion() {
 }
 
 
-// 5. Customize the startInterviewWithWelcome function
-async function startInterviewWithWelcome() {
-    console.log("Starting interview with welcome...");
-
-    try {
-        // Speak welcome message only if not already played
-        if (!welcomeMessagePlayed) {
-            console.log("Speaking welcome message");
-            await speakText("Hello, welcome to this interview!", "welcome");
-            welcomeMessagePlayed = true;
-        }
-
-        // Don't speak the first question here - let processNextQuestion handle it
-        processNextQuestion();
-    } catch (error) {
-        console.error("Error during interview start:", error);
-    }
-}
 
 // Add hooks to recordAudioWithSilenceDetection for debugging
 const originalRecordAudio = recordAudioWithSilenceDetection;
