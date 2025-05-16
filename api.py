@@ -216,6 +216,53 @@ async def speak_question(request: Request):
         await tts.speak(question)
     return {"status": "success"}
 
+@app.get("/popular")
+def serve_popular_page():
+    return FileResponse("app/static/popular.html")
+
+
+@app.get("/load_preset/{preset_id}")
+def load_preset(preset_id: str):
+    presets = {
+        "microsoft": [
+            "Tell me about a time you overcame a technical challenge.",
+            "Describe a project where you had to collaborate with others.",
+            "Why do you want to work at Microsoft?"
+        ],
+        "mcdonalds": [
+            "Why do you want to be a manager at McDonald's?",
+            "How do you handle customer complaints?",
+            "Describe a time you had to lead a team under pressure."
+        ],
+        "google": [
+            "How do you approach system design under scale?",
+            "Explain a project you're proud of and your role in it.",
+            "What's the hardest bug you've debugged?"
+        ],
+        "starbucks": [
+            "How would you handle a rush with multiple upset customers?",
+            "Describe your ideal team environment.",
+            "What does good customer service mean to you?"
+        ],
+        "tesla": [
+            "Describe a time you solved a tough engineering problem.",
+            "How do you deal with frequent iteration under pressure?",
+            "Why do you want to work at Tesla?"
+        ],
+        "target": [
+            "How do you lead a team with mixed experience levels?",
+            "Describe a time you had to hit a goal under a deadline.",
+            "How do you respond to employee conflict?"
+        ]
+    }
+
+    questions = presets.get(preset_id)
+    if not questions:
+        return JSONResponse(status_code=404, content={"error": "Preset not found."})
+    
+    return {"questions": questions}
+
+
 @app.get("/transcript")
 def get_transcript():
     """Return the full transcript with enhanced metadata"""

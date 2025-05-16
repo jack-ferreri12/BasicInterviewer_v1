@@ -10,12 +10,15 @@
 <body>
     <h1>Behavioral Interview Assistant</h1>
 
-    <!-- Button to input custom questions -->
+    <!-- Button group for different interview types -->
     <div class="btn-group">
-        <button id="startCustom">Input Custom Questions</button>
+        <button id="startCustom">Custom Questions</button>
+        <button id="startJobLink">Job Link</button>
+        <button id="startJobDescription">Job Description</button>
+        <button id="startPopular">Popular Interviews</button>
     </div>
 
-    <!-- Custom question input section -->
+    <!-- === Custom Questions Section === -->
     <div id="customQuestionSection" style="display: none;">
         <h2>Enter Your Custom Questions</h2>
         <div id="questionContainer">
@@ -27,9 +30,23 @@
         <button id="startInterview" style="display: none;">Start Interview</button>
     </div>
 
-    <!-- Interview status section -->
+    <!-- === Job Link Submission Section (Placeholder) === -->
+    <div id="jobLinkSection" style="display: none;">
+        <h2>Submit Job Link</h2>
+        <input type="text" id="jobLinkInput" placeholder="Paste job link here..." style="padding: 10px; width: 100%; max-width: 500px; margin-top: 10px;" />
+        <p style="color: #888; margin-top: 10px;">(Functionality coming soon!)</p>
+    </div>
+
+    <!-- === Job Description Submission Section (Placeholder) === -->
+    <div id="jobDescriptionSection" style="display: none;">
+        <h2>Paste Job Description</h2>
+        <textarea id="jobDescriptionInput" rows="6" placeholder="Paste full job description here..." style="padding: 10px; width: 100%; max-width: 600px; margin-top: 10px;"></textarea>
+        <p style="color: #888; margin-top: 10px;">(Functionality coming soon!)</p>
+    </div>
+
+    <!-- === Interview Status Section === -->
     <div id="interviewStatusSection" class="interview" style="display: none;">
-        <!-- Question progress tracker -->
+        <!-- Progress -->
         <div class="progress-tracker">
             <div id="questionCounter">Question 1 of 1</div>
             <div class="progress-bar-container">
@@ -37,35 +54,33 @@
             </div>
         </div>
 
-        <!-- Current question display -->
+        <!-- Question -->
         <div class="question-container">
             <p><strong>Current Question:</strong></p>
             <div id="currentQuestion" class="question-text">Waiting...</div>
             <div id="followup" class="follow-up" style="display:none;"></div>
         </div>
-        
-        <!-- Recording status -->
+
+        <!-- Recording -->
         <div class="recording-status">
             <div id="recordingStatus"></div>
         </div>
-        
-        <!-- Live transcript container -->
+
+        <!-- Transcript -->
         <div class="ongoing-transcript-container">
             <h3>Ongoing Transcript</h3>
             <div id="ongoingTranscript" class="transcript-box"></div>
         </div>
     </div>
 
-    <!-- Full transcript display (shown at end of interview) -->
+    <!-- === Final Transcript & Video === -->
     <div id="complete-container" style="display:none;">
         <h2>Interview Complete</h2>
         <div id="fullTranscript" class="complete-transcript"></div>
-
-        <!-- ✅ Recorded video playback will appear here -->
         <div id="videoPlaybackContainer" style="margin-top: 20px;"></div>
     </div>
 
-    <!-- ✅ Live camera preview -->
+    <!-- === Webcam Preview === -->
     <video id="liveVideo" autoplay muted playsinline style="width: 250px; border-radius: 10px; position: fixed; bottom: 10px; right: 10px; z-index: 1000;"></video>
 </body>
 </html>

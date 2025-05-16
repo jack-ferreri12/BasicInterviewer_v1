@@ -9,25 +9,55 @@ let interviewData = {
 let isInterviewComplete = false;
 let mediaRecorder = null;
 let audioStream = null;
-let waitingForFollowupAnswer = false; // New flag to track if we're waiting for a follow-up answer
+let waitingForFollowupAnswer = false;
 let fullMediaRecorder = null;
 let fullRecordingBlobs = [];
 let fullMediaStream = null;
 let justTransitioned = false;
 
-// Handle custom interview mode selection
-document.getElementById("startCustom").onclick = () => {
-    console.log("Start Custom clicked");
-    document.getElementById("customQuestionSection").style.display = "block";
-    document.getElementById("startCustom").disabled = true;
-    addQuestionInput();
-};
+// === Helper ===
+function hideAllModes() {
+    const ids = [
+        "customQuestionSection",
+        "jobLinkSection",
+        "jobDescriptionSection",
+        "interviewStatusSection"
+    ];
+    ids.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = "none";
+    });
+}
 
-// Add a new question input field
-document.getElementById("addQuestionBtn").onclick = () => {
+// === Interview Mode Buttons ===
+document.getElementById("startCustom")?.addEventListener("click", () => {
+    console.log("Start Custom clicked");
+    hideAllModes();
+    document.getElementById("customQuestionSection").style.display = "block";
+    addQuestionInput();
+});
+
+document.getElementById("startJobLink")?.addEventListener("click", () => {
+    console.log("Job Link clicked");
+    hideAllModes();
+    document.getElementById("jobLinkSection").style.display = "block";
+});
+
+document.getElementById("startJobDescription")?.addEventListener("click", () => {
+    console.log("Job Description clicked");
+    hideAllModes();
+    document.getElementById("jobDescriptionSection").style.display = "block";
+});
+
+document.getElementById("startPopular")?.addEventListener("click", () => {
+    window.location.href = "/popular";
+});
+
+// === Custom Question Handlers ===
+document.getElementById("addQuestionBtn")?.addEventListener("click", () => {
     console.log("Add Question clicked");
     addQuestionInput();
-};
+});
 
 function addQuestionInput() {
     const questionContainer = document.getElementById("questionContainer");
@@ -38,14 +68,17 @@ function addQuestionInput() {
     `;
     questionContainer.appendChild(newQuestionBox);
 
-    document.getElementById("startInterview").style.display = "inline-block";
-    document.getElementById("startInterview").disabled = false;
+    const startBtn = document.getElementById("startInterview");
+    startBtn.style.display = "inline-block";
+    startBtn.disabled = false;
 }
 
-document.getElementById("startInterview").onclick = async () => {
+document.getElementById("startInterview")?.addEventListener("click", async () => {
     console.log("Start Interview clicked");
 
-    const questions = Array.from(document.querySelectorAll(".questionInput")).map(input => input.value.trim());
+    const inputs = document.querySelectorAll(".questionInput");
+    const questions = Array.from(inputs).map(input => input.value.trim()).filter(Boolean);
+
     if (questions.length === 0) {
         alert("Please add at least one question.");
         return;
@@ -56,7 +89,6 @@ document.getElementById("startInterview").onclick = async () => {
     isInterviewComplete = false;
     waitingForFollowupAnswer = false;
 
-    // ✅ Submit each question to the backend before starting
     for (const q of questions) {
         console.log("Submitting question to backend:", q);
         await fetch("/submit_custom_question", {
@@ -67,21 +99,44 @@ document.getElementById("startInterview").onclick = async () => {
     }
 
     document.getElementById("startInterview").style.display = "none";
-    document.getElementById("customQuestionSection").style.display = "none";
+    hideAllModes();
     document.getElementById("interviewStatusSection").style.display = "block";
-
-    // Show the progress tracker
     updateProgressTracker(1, questions.length);
-    
-    // ✅ Now start the interview
+
     await startInterviewWithWelcome();
-};
+});
+
+// === Preset Question Flow ===
+document.addEventListener("DOMContentLoaded", async () => {
+    const presetData = localStorage.getItem("presetQuestions");
+    if (presetData) {
+        const questions = JSON.parse(presetData);
+        localStorage.removeItem("presetQuestions");
+
+        interviewData.questions = questions;
+        currentQuestionIndex = 0;
+        isInterviewComplete = false;
+        waitingForFollowupAnswer = false;
+
+        for (const q of questions) {
+            await fetch("/submit_custom_question", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ question: q }),
+            });
+        }
+
+        document.getElementById("interviewStatusSection").style.display = "block";
+        updateProgressTracker(1, questions.length);
+        await startInterviewWithWelcome();
+    }
+});
+
 
 async function startInterviewWithWelcome() {
     console.log("Starting interview with welcome...");
 
     try {
-        // ✅ Start webcam + recording here
         await startVideoRecording();
 
         console.log("Attempting to speak welcome message...");
@@ -90,8 +145,7 @@ async function startInterviewWithWelcome() {
 
         const firstQuestion = interviewData.questions[currentQuestionIndex];
         document.getElementById("currentQuestion").textContent = firstQuestion;
-        
-        // Update question counter
+
         document.getElementById("questionCounter").textContent = `Question 1 of ${interviewData.questions.length}`;
         
         await speakText(firstQuestion);
